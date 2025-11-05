@@ -8,10 +8,9 @@ package com.skcraft.launcher;
 
 import com.google.common.base.Supplier;
 import com.skcraft.launcher.dialog.LauncherFrame;
+import javafx.stage.Stage;
 
-import java.awt.*;
-
-public class DefaultLauncherSupplier implements Supplier<Window> {
+public class DefaultLauncherSupplier implements Supplier<Stage> {
 
     private final Launcher launcher;
 
@@ -20,8 +19,9 @@ public class DefaultLauncherSupplier implements Supplier<Window> {
     }
 
     @Override
-    public Window get() {
-        return new LauncherFrame(launcher);
+    public Stage get() {
+        LauncherFrame frame = new LauncherFrame(launcher);
+        return frame.getStage();
     }
 
 }

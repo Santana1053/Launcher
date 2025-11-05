@@ -1,370 +1,376 @@
-/*
- * SK's Minecraft Launcher
- * Copyright (C) 2010-2014 Albert Pham <http://www.sk89q.com> and contributors
- * Please see LICENSE.txt for license information.
- */
-
 package com.skcraft.launcher.dialog;
 
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
 import com.skcraft.concurrency.ObservableFuture;
 import com.skcraft.launcher.Instance;
 import com.skcraft.launcher.InstanceList;
 import com.skcraft.launcher.Launcher;
+import com.skcraft.launcher.fx.FxClipboard;
+import com.skcraft.launcher.fx.FxDialogs;
+import com.skcraft.launcher.fx.FxFutures;
 import com.skcraft.launcher.launch.LaunchListener;
 import com.skcraft.launcher.launch.LaunchOptions;
 import com.skcraft.launcher.launch.LaunchOptions.UpdatePolicy;
-import com.skcraft.launcher.swing.*;
+import com.skcraft.launcher.util.FxExecutor;
 import com.skcraft.launcher.util.SharedLocale;
-import com.skcraft.launcher.util.SwingExecutor;
+import javafx.application.Platform;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.MouseButton;
+import javafx.scene.layout.*;
+import javafx.stage.Stage;
+import javafx.stage.Window;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.extern.java.Log;
-import net.miginfocom.swing.MigLayout;
 
-import javax.swing.*;
-import javax.swing.event.TableModelEvent;
-import javax.swing.event.TableModelListener;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.MouseEvent;
-import java.beans.PropertyChangeEvent;
-import java.beans.PropertyChangeListener;
 import java.io.File;
 import java.lang.ref.WeakReference;
+import java.net.URL;
+import java.util.Optional;
 
 import static com.skcraft.launcher.util.SharedLocale.tr;
 
-/**
- * The main launcher frame.
- */
 @Log
-public class LauncherFrame extends JFrame {
+public class LauncherFrame {
 
     private final Launcher launcher;
-
     @Getter
-    private final InstanceTable instancesTable = new InstanceTable();
-    private final InstanceTableModel instancesModel;
-    @Getter
-    private final JScrollPane instanceScroll = new JScrollPane(instancesTable);
-    private WebpagePanel webView;
-    private JSplitPane splitPane;
-    private final JButton launchButton = new JButton(SharedLocale.tr("launcher.launch"));
-    private final JButton refreshButton = new JButton(SharedLocale.tr("launcher.checkForUpdates"));
-    private final JButton optionsButton = new JButton(SharedLocale.tr("launcher.options"));
-    private final JButton selfUpdateButton = new JButton(SharedLocale.tr("launcher.updateLauncher"));
-    private final JCheckBox updateCheck = new JCheckBox(SharedLocale.tr("launcher.downloadUpdates"));
+    private final Stage stage;
 
-    /**
-     * Create a new frame.
-     *
-     * @param launcher the launcher
-     */
+    private final TableView<Instance> instancesTable = new TableView<>();
+    private final ObservableList<Instance> tableItems = FXCollections.observableArrayList();
+    private final WebViewWrapper newsView;
+    private final Button launchButton = new Button(SharedLocale.tr("launcher.launch"));
+    private final Button refreshButton = new Button(SharedLocale.tr("launcher.checkForUpdates"));
+    private final Button optionsButton = new Button(SharedLocale.tr("launcher.options"));
+    private final Button selfUpdateButton = new Button(SharedLocale.tr("launcher.updateLauncher"));
+    private final CheckBox updateCheck = new CheckBox(SharedLocale.tr("launcher.downloadUpdates"));
+
+    private final Image instanceIcon = loadIcon("instance_icon.png", 16, 16);
+    private final Image customInstanceIcon = loadIcon("custom_instance_icon.png", 16, 16);
+    private final Image downloadIcon = loadIcon("download_icon.png", 14, 14);
+
     public LauncherFrame(@NonNull Launcher launcher) {
-        super(tr("launcher.title", launcher.getVersion()));
+        this(launcher, new Stage());
+    }
 
+    public LauncherFrame(@NonNull Launcher launcher, Stage stage) {
         this.launcher = launcher;
-        instancesModel = new InstanceTableModel(launcher.getInstances());
+        this.stage = stage;
 
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        setMinimumSize(new Dimension(400, 300));
-        initComponents();
-        pack();
-        setLocationRelativeTo(null);
+        stage.setTitle(tr("launcher.title", launcher.getVersion()));
+        stage.setMinWidth(400);
+        stage.setMinHeight(300);
+        stage.setScene(createScene());
+        stage.getIcons().add(loadIcon("icon.png", 64, 64));
 
-        SwingHelper.setFrameIcon(this, Launcher.class, "icon.png");
+        stage.setOnShown(event -> Platform.runLater(this::loadInitialState));
 
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                loadInstances();
-            }
-        });
-    }
-
-    private void initComponents() {
-        JPanel container = createContainerPanel();
-        container.setLayout(new MigLayout("fill, insets dialog", "[][]push[][]", "[grow][]"));
-
-        webView = createNewsPanel();
-        splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, instanceScroll, webView);
         selfUpdateButton.setVisible(launcher.getUpdateManager().getPendingUpdate());
-
-        launcher.getUpdateManager().addPropertyChangeListener(new PropertyChangeListener() {
-            @Override
-            public void propertyChange(PropertyChangeEvent evt) {
-                if (evt.getPropertyName().equals("pendingUpdate")) {
-                    selfUpdateButton.setVisible((Boolean) evt.getNewValue());
-
-                }
-            }
-        });
-
-        updateCheck.setSelected(true);
-        instancesTable.setModel(instancesModel);
-        launchButton.setFont(launchButton.getFont().deriveFont(Font.BOLD));
-        splitPane.setDividerLocation(200);
-        splitPane.setDividerSize(4);
-        splitPane.setOpaque(false);
-        container.add(splitPane, "grow, wrap, span 5, gapbottom unrel, w null:680, h null:350");
-        SwingHelper.flattenJSplitPane(splitPane);
-        container.add(refreshButton);
-        container.add(updateCheck);
-        container.add(selfUpdateButton);
-        container.add(optionsButton);
-        container.add(launchButton);
-
-        add(container, BorderLayout.CENTER);
-
-        instancesModel.addTableModelListener(new TableModelListener() {
-            @Override
-            public void tableChanged(TableModelEvent e) {
-                if (instancesTable.getRowCount() > 0) {
-                    instancesTable.setRowSelectionInterval(0, 0);
-                }
-            }
-        });
-
-        instancesTable.addMouseListener(new DoubleClickToButtonAdapter(launchButton));
-
-        refreshButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                loadInstances();
-                launcher.getUpdateManager().checkForUpdate();
-                webView.browse(launcher.getNewsURL(), false);
-            }
-        });
-
-        selfUpdateButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                launcher.getUpdateManager().performUpdate(LauncherFrame.this);
-            }
-        });
-
-        optionsButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                showOptions();
-            }
-        });
-
-        launchButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                launch();
-            }
-        });
-
-        instancesTable.addMouseListener(new PopupMouseAdapter() {
-            @Override
-            protected void showPopup(MouseEvent e) {
-                int index = instancesTable.rowAtPoint(e.getPoint());
-                Instance selected = null;
-                if (index >= 0) {
-                    instancesTable.setRowSelectionInterval(index, index);
-                    selected = launcher.getInstances().get(index);
-                }
-                popupInstanceMenu(e.getComponent(), e.getX(), e.getY(), selected);
+        launcher.getUpdateManager().addPropertyChangeListener(evt -> {
+            if ("pendingUpdate".equals(evt.getPropertyName())) {
+                boolean pending = Optional.ofNullable(evt.getNewValue()).map(Boolean.class::cast).orElse(false);
+                Platform.runLater(() -> selfUpdateButton.setVisible(pending));
             }
         });
     }
 
-    protected JPanel createContainerPanel() {
-        return new JPanel();
+    public void show() {
+        stage.show();
+        stage.toFront();
+        stage.requestFocus();
     }
 
-    /**
-     * Return the news panel.
-     *
-     * @return the news panel
-     */
-    protected WebpagePanel createNewsPanel() {
-        return WebpagePanel.forURL(launcher.getNewsURL(), false);
+    private Scene createScene() {
+        BorderPane root = new BorderPane();
+        root.setPadding(new Insets(12, 12, 12, 12));
+
+        newsView = new WebViewWrapper();
+
+        SplitPane splitPane = new SplitPane();
+        splitPane.setDividerPositions(0.4);
+        splitPane.getItems().add(createInstancesRegion());
+        splitPane.getItems().add(newsView.getNode());
+        splitPane.setPadding(new Insets(0, 0, 12, 0));
+
+        root.setCenter(splitPane);
+        root.setBottom(createFooter());
+
+        return new Scene(root, 720, 420);
     }
 
-    /**
-     * Popup the menu for the instances.
-     *
-     * @param component the component
-     * @param x mouse X
-     * @param y mouse Y
-     * @param selected the selected instance, possibly null
-     */
-    private void popupInstanceMenu(Component component, int x, int y, final Instance selected) {
-        JPopupMenu popup = new JPopupMenu();
-        JMenuItem menuItem;
-
-        if (selected != null) {
-            menuItem = new JMenuItem(!selected.isLocal() ? tr("instance.install") : tr("instance.launch"));
-            menuItem.addActionListener(new ActionListener() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
+    private Region createInstancesRegion() {
+        instancesTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        instancesTable.setPlaceholder(new Label(tr("launcher.noInstances")));
+        instancesTable.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
+        instancesTable.setRowFactory(tv -> {
+            TableRow<Instance> row = new TableRow<>();
+            row.setOnMouseClicked(event -> {
+                if (!row.isEmpty() && event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
                     launch();
                 }
             });
-            popup.add(menuItem);
-
-            if (selected.isLocal()) {
-                popup.addSeparator();
-
-                menuItem = new JMenuItem(SharedLocale.tr("instance.openFolder"));
-                menuItem.addActionListener(ActionListeners.browseDir(
-                        LauncherFrame.this, selected.getContentDir(), true));
-                popup.add(menuItem);
-
-                menuItem = new JMenuItem(SharedLocale.tr("instance.openSaves"));
-                menuItem.addActionListener(ActionListeners.browseDir(
-                        LauncherFrame.this, new File(selected.getContentDir(), "saves"), true));
-                popup.add(menuItem);
-
-                menuItem = new JMenuItem(SharedLocale.tr("instance.openResourcePacks"));
-                menuItem.addActionListener(ActionListeners.browseDir(
-                        LauncherFrame.this, new File(selected.getContentDir(), "resourcepacks"), true));
-                popup.add(menuItem);
-
-                menuItem = new JMenuItem(SharedLocale.tr("instance.openScreenshots"));
-                menuItem.addActionListener(ActionListeners.browseDir(
-                        LauncherFrame.this, new File(selected.getContentDir(), "screenshots"), true));
-                popup.add(menuItem);
-
-                menuItem = new JMenuItem(SharedLocale.tr("instance.copyAsPath"));
-                menuItem.addActionListener(new ActionListener() {
-                    @Override
-                    public void actionPerformed(ActionEvent e) {
-                        File dir = selected.getContentDir();
-                        dir.mkdirs();
-                        SwingHelper.setClipboard(dir.getAbsolutePath());
-                    }
-                });
-                popup.add(menuItem);
-
-                menuItem = new JMenuItem(SharedLocale.tr("instance.openSettings"));
-                menuItem.addActionListener(e -> {
-                    InstanceSettingsDialog.open(this, selected);
-                });
-                popup.add(menuItem);
-
-                popup.addSeparator();
-
-                if (!selected.isUpdatePending()) {
-                    menuItem = new JMenuItem(SharedLocale.tr("instance.forceUpdate"));
-                    menuItem.addActionListener(new ActionListener() {
-                        @Override
-                        public void actionPerformed(ActionEvent e) {
-                            selected.setUpdatePending(true);
-                            launch();
-                            instancesModel.update();
-                        }
-                    });
-                    popup.add(menuItem);
+            row.setOnContextMenuRequested(event -> {
+                Instance instance = row.getItem();
+                if (instance != null) {
+                    ContextMenu menu = createInstanceContextMenu(instance);
+                    menu.show(row, event.getScreenX(), event.getScreenY());
                 }
+            });
+            return row;
+        });
 
-                menuItem = new JMenuItem(SharedLocale.tr("instance.hardForceUpdate"));
-                menuItem.addActionListener(new ActionListener() {
-                    @Override
-                    public void actionPerformed(ActionEvent e) {
-                        confirmHardUpdate(selected);
-                    }
-                });
-                popup.add(menuItem);
-
-                menuItem = new JMenuItem(SharedLocale.tr("instance.deleteFiles"));
-                menuItem.addActionListener(new ActionListener() {
-                    @Override
-                    public void actionPerformed(ActionEvent e) {
-                        confirmDelete(selected);
-                    }
-                });
-                popup.add(menuItem);
-            }
-
-            popup.addSeparator();
-        }
-
-        menuItem = new JMenuItem(SharedLocale.tr("launcher.refreshList"));
-        menuItem.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                loadInstances();
+        instancesTable.setOnKeyPressed(event -> {
+            if (event.getCode() == KeyCode.ENTER) {
+                launch();
+                event.consume();
             }
         });
-        popup.add(menuItem);
 
-        popup.show(component, x, y);
+        TableColumn<Instance, ImageView> iconColumn = new TableColumn<>();
+        iconColumn.setPrefWidth(36);
+        iconColumn.setMaxWidth(36);
+        iconColumn.setCellValueFactory(param -> new SimpleObjectProperty<>(createIconView(param.getValue())));
+        iconColumn.setCellFactory(param -> new TableCell<>() {
+            @Override
+            protected void updateItem(ImageView item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setGraphic(null);
+                } else {
+                    setGraphic(item);
+                    setAlignment(Pos.CENTER);
+                }
+            }
+        });
 
+        TableColumn<Instance, String> titleColumn = new TableColumn<>(SharedLocale.tr("launcher.modpackColumn"));
+        titleColumn.setCellValueFactory(param -> new SimpleStringProperty(Optional.ofNullable(param.getValue().getTitle()).orElse(param.getValue().getName())));
+        titleColumn.setSortable(false);
+
+        instancesTable.getColumns().setAll(iconColumn, titleColumn);
+        instancesTable.setItems(tableItems);
+
+        VBox container = new VBox(instancesTable);
+        VBox.setVgrow(instancesTable, Priority.ALWAYS);
+        return container;
     }
 
-    private void confirmDelete(Instance instance) {
-        if (!SwingHelper.confirmDialog(this,
-                tr("instance.confirmDelete", instance.getTitle()), SharedLocale.tr("confirmTitle"))) {
-            return;
-        }
+    private Region createFooter() {
+        HBox footer = new HBox(8);
+        footer.setAlignment(Pos.CENTER_RIGHT);
 
-        ObservableFuture<Instance> future = launcher.getInstanceTasks().delete(this, instance);
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        // Update the list of instances after updating
-        future.addListener(new Runnable() {
-            @Override
-            public void run() {
-                loadInstances();
-            }
-        }, SwingExecutor.INSTANCE);
+        launchButton.getStyleClass().add("primary-button");
+
+        footer.getChildren().addAll(refreshButton, updateCheck, selfUpdateButton, spacer, optionsButton, launchButton);
+
+        refreshButton.setOnAction(e -> {
+            loadInstances();
+            launcher.getUpdateManager().checkForUpdate();
+            newsView.load(launcher.getNewsURL());
+        });
+
+        optionsButton.setOnAction(e -> showOptions());
+
+        launchButton.setOnAction(e -> launch());
+
+        selfUpdateButton.setOnAction(e -> launcher.getUpdateManager().performUpdate(stage));
+
+        updateCheck.setSelected(true);
+
+        launchButton.disableProperty().bind(instancesTable.getSelectionModel().selectedItemProperty().isNull());
+
+        return footer;
     }
 
-    private void confirmHardUpdate(Instance instance) {
-        if (!SwingHelper.confirmDialog(this, SharedLocale.tr("instance.confirmHardUpdate"), SharedLocale.tr("confirmTitle"))) {
-            return;
+    private void loadInitialState() {
+        refreshInstancesView();
+        if (!tableItems.isEmpty()) {
+            instancesTable.getSelectionModel().select(0);
         }
+        newsView.load(launcher.getNewsURL());
+        loadInstances();
+    }
 
-        ObservableFuture<Instance> future = launcher.getInstanceTasks().hardUpdate(this, instance);
-
-        // Update the list of instances after updating
-        future.addListener(new Runnable() {
-            @Override
-            public void run() {
-                launch();
-                instancesModel.update();
-            }
-        }, SwingExecutor.INSTANCE);
+    private void refreshInstancesView() {
+        tableItems.setAll(launcher.getInstances().getInstances());
+        tableItems.sort(null);
     }
 
     private void loadInstances() {
-        ObservableFuture<InstanceList> future = launcher.getInstanceTasks().reloadInstances(this);
-
-        future.addListener(new Runnable() {
-            @Override
-            public void run() {
-                instancesModel.update();
-                if (instancesTable.getRowCount() > 0) {
-                    instancesTable.setRowSelectionInterval(0, 0);
-                }
-                requestFocus();
+        ObservableFuture<InstanceList> future = launcher.getInstanceTasks().reloadInstances(stage);
+        future.addListener(() -> Platform.runLater(() -> {
+            refreshInstancesView();
+            if (!tableItems.isEmpty()) {
+                instancesTable.getSelectionModel().select(0);
             }
-        }, SwingExecutor.INSTANCE);
+        }), FxExecutor.INSTANCE);
 
-        ProgressDialog.showProgress(this, future, SharedLocale.tr("launcher.checkingTitle"), SharedLocale.tr("launcher.checkingStatus"));
-        SwingHelper.addErrorDialogCallback(this, future);
-    }
-
-    private void showOptions() {
-        ConfigurationDialog configDialog = new ConfigurationDialog(this, launcher);
-        configDialog.setVisible(true);
+        ProgressDialog.showProgress(stage, future, SharedLocale.tr("launcher.checkingTitle"), SharedLocale.tr("launcher.checkingStatus"));
+        FxFutures.addErrorDialogCallback(stage, future);
     }
 
     private void launch() {
+        Instance selected = instancesTable.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            return;
+        }
+
         boolean permitUpdate = updateCheck.isSelected();
-        Instance instance = launcher.getInstances().get(instancesTable.getSelectedRow());
 
         LaunchOptions options = new LaunchOptions.Builder()
-                .setInstance(instance)
+                .setInstance(selected)
                 .setListener(new LaunchListenerImpl(this))
                 .setUpdatePolicy(permitUpdate ? UpdatePolicy.UPDATE_IF_SESSION_ONLINE : UpdatePolicy.NO_UPDATE)
-                .setWindow(this)
+                .setWindow(stage)
                 .build();
         launcher.getLaunchSupervisor().launch(options);
+    }
+
+    private void showOptions() {
+        ConfigurationDialog.show(stage, launcher);
+    }
+
+    private ContextMenu createInstanceContextMenu(Instance instance) {
+        ContextMenu menu = new ContextMenu();
+
+        MenuItem primary = new MenuItem(instance.isLocal() ? SharedLocale.tr("instance.launch") : SharedLocale.tr("instance.install"));
+        primary.setOnAction(e -> launch());
+        menu.getItems().add(primary);
+
+        if (instance.isLocal()) {
+            menu.getItems().add(new SeparatorMenuItem());
+
+            menu.getItems().add(createBrowseItem(SharedLocale.tr("instance.openFolder"), instance.getContentDir()));
+            menu.getItems().add(createBrowseItem(SharedLocale.tr("instance.openSaves"), new File(instance.getContentDir(), "saves")));
+            menu.getItems().add(createBrowseItem(SharedLocale.tr("instance.openResourcePacks"), new File(instance.getContentDir(), "resourcepacks")));
+            menu.getItems().add(createBrowseItem(SharedLocale.tr("instance.openScreenshots"), new File(instance.getContentDir(), "screenshots")));
+
+            MenuItem copyPath = new MenuItem(SharedLocale.tr("instance.copyAsPath"));
+            copyPath.setOnAction(e -> {
+                File dir = instance.getContentDir();
+                dir.mkdirs();
+                FxClipboard.setText(dir.getAbsolutePath());
+            });
+            menu.getItems().add(copyPath);
+
+            MenuItem openSettings = new MenuItem(SharedLocale.tr("instance.openSettings"));
+            openSettings.setOnAction(e -> InstanceSettingsDialog.open(stage, instance));
+            menu.getItems().add(openSettings);
+
+            menu.getItems().add(new SeparatorMenuItem());
+
+            if (!instance.isUpdatePending()) {
+                MenuItem forceUpdate = new MenuItem(SharedLocale.tr("instance.forceUpdate"));
+                forceUpdate.setOnAction(e -> {
+                    instance.setUpdatePending(true);
+                    launch();
+                    refreshInstancesView();
+                });
+                menu.getItems().add(forceUpdate);
+            }
+
+            MenuItem hardUpdate = new MenuItem(SharedLocale.tr("instance.hardForceUpdate"));
+            hardUpdate.setOnAction(e -> confirmHardUpdate(instance));
+            menu.getItems().add(hardUpdate);
+
+            MenuItem deleteFiles = new MenuItem(SharedLocale.tr("instance.deleteFiles"));
+            deleteFiles.setOnAction(e -> confirmDelete(instance));
+            menu.getItems().add(deleteFiles);
+        }
+
+        menu.getItems().add(new SeparatorMenuItem());
+
+        MenuItem refresh = new MenuItem(SharedLocale.tr("launcher.refreshList"));
+        refresh.setOnAction(e -> loadInstances());
+        menu.getItems().add(refresh);
+
+        return menu;
+    }
+
+    private MenuItem createBrowseItem(String label, File dir) {
+        MenuItem item = new MenuItem(label);
+        item.setOnAction(e -> browseDirectory(dir));
+        return item;
+    }
+
+    private void browseDirectory(File dir) {
+        try {
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+            java.awt.Desktop.getDesktop().open(dir);
+        } catch (Exception e) {
+            FxDialogs.showError(stage, SharedLocale.tr("errors.openDirError", dir.getAbsolutePath()), SharedLocale.tr("errorTitle"), e);
+        }
+    }
+
+    private void confirmDelete(Instance instance) {
+        if (!FxDialogs.confirm(stage, tr("instance.confirmDelete", instance.getTitle()), SharedLocale.tr("confirmTitle"))) {
+            return;
+        }
+
+        ObservableFuture<Instance> future = launcher.getInstanceTasks().delete(stage, instance);
+        future.addListener(this::loadInstances, FxExecutor.INSTANCE);
+        FxFutures.addErrorDialogCallback(stage, future);
+    }
+
+    private void confirmHardUpdate(Instance instance) {
+        if (!FxDialogs.confirm(stage, SharedLocale.tr("instance.confirmHardUpdate"), SharedLocale.tr("confirmTitle"))) {
+            return;
+        }
+
+        ObservableFuture<Instance> future = launcher.getInstanceTasks().hardUpdate(stage, instance);
+        Futures.addCallback(future, new FutureCallback<>() {
+            @Override
+            public void onSuccess(Instance result) {
+                loadInstances();
+                launch();
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+            }
+        }, FxExecutor.INSTANCE);
+        FxFutures.addErrorDialogCallback(stage, future);
+    }
+
+    private Image loadIcon(String resource, int width, int height) {
+        URL url = Launcher.class.getResource(resource);
+        if (url == null) {
+            log.warning("Missing icon resource: " + resource);
+            return null;
+        }
+        return new Image(url.toExternalForm(), width, height, true, true);
+    }
+
+    private ImageView createIconView(Instance instance) {
+        Image image;
+        if (!instance.isLocal()) {
+            image = downloadIcon;
+        } else if (instance.getManifestURL() != null) {
+            image = instanceIcon;
+        } else {
+            image = customInstanceIcon;
+        }
+        ImageView view = image != null ? new ImageView(image) : new ImageView();
+        view.setFitWidth(16);
+        view.setFitHeight(16);
+        return view;
     }
 
     private static class LaunchListenerImpl implements LaunchListener {
@@ -372,7 +378,7 @@ public class LauncherFrame extends JFrame {
         private final Launcher launcher;
 
         private LaunchListenerImpl(LauncherFrame frame) {
-            this.frameRef = new WeakReference<LauncherFrame>(frame);
+            this.frameRef = new WeakReference<>(frame);
             this.launcher = frame.launcher;
         }
 
@@ -380,7 +386,7 @@ public class LauncherFrame extends JFrame {
         public void instancesUpdated() {
             LauncherFrame frame = frameRef.get();
             if (frame != null) {
-                frame.instancesModel.update();
+                Platform.runLater(frame::refreshInstancesView);
             }
         }
 
@@ -388,14 +394,28 @@ public class LauncherFrame extends JFrame {
         public void gameStarted() {
             LauncherFrame frame = frameRef.get();
             if (frame != null) {
-                frame.dispose();
+                Platform.runLater(() -> frame.stage.hide());
             }
         }
 
         @Override
         public void gameClosed() {
-            launcher.showLauncherWindow();
+            Platform.runLater(launcher::showLauncherWindow);
         }
     }
 
+    private static class WebViewWrapper {
+        private final javafx.scene.web.WebView webView = new javafx.scene.web.WebView();
+
+        Region getNode() {
+            VBox.setVgrow(webView, Priority.ALWAYS);
+            return webView;
+        }
+
+        void load(URL url) {
+            if (url != null) {
+                Platform.runLater(() -> webView.getEngine().load(url.toExternalForm()));
+            }
+        }
+    }
 }

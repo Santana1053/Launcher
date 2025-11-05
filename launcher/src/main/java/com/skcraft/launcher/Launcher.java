@@ -13,25 +13,25 @@ import com.google.common.base.Supplier;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.skcraft.launcher.auth.*;
+import com.skcraft.launcher.fx.LauncherFxApplication;
 import com.skcraft.launcher.launch.LaunchSupervisor;
 import com.skcraft.launcher.model.minecraft.Library;
 import com.skcraft.launcher.model.minecraft.VersionManifest;
 import com.skcraft.launcher.persistence.Persistence;
-import com.skcraft.launcher.swing.SwingHelper;
 import com.skcraft.launcher.update.UpdateManager;
 import com.skcraft.launcher.util.Environment;
 import com.skcraft.launcher.util.HttpRequest;
 import com.skcraft.launcher.util.SharedLocale;
 import com.skcraft.launcher.util.SimpleLogFormatter;
 import com.sun.management.OperatingSystemMXBean;
+import javafx.application.Platform;
+import javafx.stage.Stage;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.extern.java.Log;
 import org.apache.commons.io.FileUtils;
 
-import javax.swing.*;
-import java.awt.*;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.IOException;
@@ -44,8 +44,6 @@ import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
 
-import static com.skcraft.launcher.util.SharedLocale.tr;
-
 /**
  * The main entry point for the launcher.
  */
@@ -56,7 +54,7 @@ public final class Launcher {
 
     @Getter
     private final ListeningExecutorService executor = MoreExecutors.listeningDecorator(Executors.newCachedThreadPool());
-    @Getter @Setter private Supplier<Window> mainWindowSupplier = new DefaultLauncherSupplier(this);
+    @Getter @Setter private Supplier<Stage> mainWindowSupplier = new DefaultLauncherSupplier(this);
     @Getter private final File baseDir;
     @Getter private final Properties properties;
     @Getter private final InstanceList instances;
@@ -402,7 +400,14 @@ public final class Launcher {
      * Show the launcher.
      */
     public void showLauncherWindow() {
-        mainWindowSupplier.get().setVisible(true);
+        Platform.runLater(() -> {
+            Stage stage = mainWindowSupplier.get();
+            if (!stage.isShowing()) {
+                stage.show();
+            }
+            stage.toFront();
+            stage.requestFocus();
+        });
     }
 
     /**
@@ -445,24 +450,7 @@ public final class Launcher {
      * @param args args
      */
     public static void main(final String[] args) {
-        setupLogger();
-
-        SwingUtilities.invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    Launcher launcher = createFromArguments(args);
-                    SwingHelper.setSwingProperties(tr("launcher.appTitle", launcher.getVersion()));
-                    UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-                    launcher.showLauncherWindow();
-                } catch (Throwable t) {
-                    log.log(Level.WARNING, "Load failure", t);
-                    SwingHelper.showErrorDialog(null, "Uh oh! The updater couldn't be opened because a " +
-                            "problem was encountered.", "Launcher error", t);
-                }
-            }
-        });
-
+        LauncherFxApplication.launch(args);
     }
 
 }

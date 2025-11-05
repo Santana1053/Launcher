@@ -8,10 +8,9 @@ package com.skcraft.launcher.launch;
 
 import com.skcraft.launcher.Instance;
 import com.skcraft.launcher.auth.Session;
+import javafx.stage.Window;
 import lombok.Data;
 import lombok.Getter;
-
-import java.awt.*;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 

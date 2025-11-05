@@ -8,242 +8,268 @@ import com.skcraft.concurrency.ProgressObservable;
 import com.skcraft.concurrency.SettableProgress;
 import com.skcraft.launcher.Launcher;
 import com.skcraft.launcher.auth.*;
+import com.skcraft.launcher.fx.FxDialogs;
+import com.skcraft.launcher.fx.FxFutures;
 import com.skcraft.launcher.persistence.Persistence;
-import com.skcraft.launcher.swing.LinedBoxPanel;
-import com.skcraft.launcher.swing.SwingHelper;
+import com.skcraft.launcher.util.FxExecutor;
 import com.skcraft.launcher.util.SharedLocale;
-import com.skcraft.launcher.util.SwingExecutor;
+import javafx.embed.swing.SwingFXUtils;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.layout.*;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
+import javafx.stage.Window;
 import lombok.RequiredArgsConstructor;
 
-import javax.swing.*;
-import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.util.List;
 import java.util.concurrent.Callable;
 
-public class AccountSelectDialog extends JDialog {
-	private final JList<SavedSession> accountList;
-	private final JButton loginButton = new JButton(SharedLocale.tr("accounts.play"));
-	private final JButton cancelButton = new JButton(SharedLocale.tr("button.cancel"));
-	private final JButton addMojangButton = new JButton(SharedLocale.tr("accounts.addMojang"));
-	private final JButton addMicrosoftButton = new JButton(SharedLocale.tr("accounts.addMicrosoft"));
-	private final JButton removeSelected = new JButton(SharedLocale.tr("accounts.removeSelected"));
-	private final JButton offlineButton = new JButton(SharedLocale.tr("login.playOffline"));
-	private final LinedBoxPanel buttonsPanel = new LinedBoxPanel(true);
+public class AccountSelectDialog {
 
-	private final Launcher launcher;
-	private Session selected;
+    private final Launcher launcher;
+    private final Stage stage;
+    private final ListView<SavedSession> accountList = new ListView<>();
 
-	public AccountSelectDialog(Window owner, Launcher launcher) {
-		super(owner, ModalityType.DOCUMENT_MODAL);
+    private Session selected;
 
-		this.launcher = launcher;
-		this.accountList = new JList<>(launcher.getAccounts());
+    private final Button loginButton = new Button(SharedLocale.tr("accounts.play"));
+    private final Button cancelButton = new Button(SharedLocale.tr("button.cancel"));
+    private final Button addMojangButton = new Button(SharedLocale.tr("accounts.addMojang"));
+    private final Button addMicrosoftButton = new Button(SharedLocale.tr("accounts.addMicrosoft"));
+    private final Button removeSelectedButton = new Button(SharedLocale.tr("accounts.removeSelected"));
+    private final Button offlineButton = new Button(SharedLocale.tr("login.playOffline"));
 
-		setTitle(SharedLocale.tr("accounts.title"));
-		initComponents();
-		setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-		setMinimumSize(new Dimension(350, 250));
-		setResizable(false);
-		pack();
-		setLocationRelativeTo(owner);
-	}
+    private final java.util.function.Consumer<com.skcraft.launcher.auth.AccountList> accountListener = list -> FxExecutor.INSTANCE.execute(this::refreshAccounts);
 
-	private void initComponents() {
-		setLayout(new BorderLayout());
+    private AccountSelectDialog(Window owner, Launcher launcher) {
+        this.launcher = launcher;
+        this.stage = new Stage();
+        stage.initModality(owner != null ? Modality.WINDOW_MODAL : Modality.APPLICATION_MODAL);
+        if (owner != null) {
+            stage.initOwner(owner);
+        }
+        stage.setTitle(SharedLocale.tr("accounts.title"));
+        stage.setResizable(false);
+        stage.setScene(createScene());
+        stage.setOnCloseRequest(event -> {
+            selected = null;
+            unregisterListeners();
+        });
 
-		accountList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-		accountList.setLayoutOrientation(JList.VERTICAL);
-		accountList.setVisibleRowCount(0);
-		accountList.setCellRenderer(new AccountRenderer());
+        registerListeners();
+        refreshAccounts();
+        if (!accountList.getItems().isEmpty()) {
+            accountList.getSelectionModel().select(0);
+        }
+    }
 
-		JScrollPane accountPane = new JScrollPane(accountList);
-		accountPane.setPreferredSize(new Dimension(280, 150));
-		accountPane.setAlignmentX(CENTER_ALIGNMENT);
+    private Scene createScene() {
+        BorderPane root = new BorderPane();
+        root.setPadding(new Insets(16));
 
-		loginButton.setFont(loginButton.getFont().deriveFont(Font.BOLD));
-		loginButton.setMargin(new Insets(0, 10, 0, 10));
+        accountList.setCellFactory(list -> new AccountCell());
+        accountList.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
+        accountList.setPrefHeight(160);
 
-		//Start Buttons
-		buttonsPanel.setBorder(BorderFactory.createEmptyBorder(26, 13, 13, 13));
-		if (launcher.getConfig().isOfflineEnabled()) {
-			buttonsPanel.addElement(offlineButton);
-		}
-		buttonsPanel.addGlue();
-		buttonsPanel.addElement(cancelButton);
-		buttonsPanel.addElement(loginButton);
+        VBox listContainer = new VBox(accountList);
+        VBox.setVgrow(accountList, Priority.ALWAYS);
 
-		//Login Buttons
-		JPanel loginButtonsRow = new JPanel(new BorderLayout(0, 5));
-		addMojangButton.setAlignmentX(CENTER_ALIGNMENT);
-		addMicrosoftButton.setAlignmentX(CENTER_ALIGNMENT);
-		removeSelected.setAlignmentX(CENTER_ALIGNMENT);
-		loginButtonsRow.add(addMojangButton, BorderLayout.NORTH);
-		loginButtonsRow.add(addMicrosoftButton, BorderLayout.CENTER);
-		loginButtonsRow.add(removeSelected, BorderLayout.SOUTH);
-		loginButtonsRow.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 0));
+        VBox addButtons = new VBox(8, addMojangButton, addMicrosoftButton, removeSelectedButton);
+        addButtons.setAlignment(Pos.TOP_CENTER);
+        addButtons.setPadding(new Insets(0, 0, 0, 12));
 
-		JPanel listAndLoginContainer = new JPanel();
-		listAndLoginContainer.add(accountPane, BorderLayout.WEST);
-		listAndLoginContainer.add(loginButtonsRow, BorderLayout.EAST);
-		listAndLoginContainer.add(Box.createVerticalStrut(5));
-		listAndLoginContainer.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        HBox middle = new HBox(listContainer, addButtons);
+        HBox.setHgrow(listContainer, Priority.ALWAYS);
+        root.setCenter(middle);
 
-		add(listAndLoginContainer, BorderLayout.CENTER);
-		add(buttonsPanel, BorderLayout.SOUTH);
+        HBox bottom = new HBox(10);
+        bottom.setAlignment(Pos.CENTER_RIGHT);
+        bottom.setPadding(new Insets(16, 0, 0, 0));
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
 
-		loginButton.addActionListener(ev -> attemptExistingLogin(accountList.getSelectedValue()));
-		cancelButton.addActionListener(ev -> dispose());
+        if (launcher.getConfig().isOfflineEnabled()) {
+            bottom.getChildren().add(offlineButton);
+        }
+        bottom.getChildren().addAll(spacer, cancelButton, loginButton);
+        root.setBottom(bottom);
 
-		addMojangButton.addActionListener(ev -> {
-			Session newSession = LoginDialog.showLoginRequest(this, launcher);
+        loginButton.setDefaultButton(true);
 
-			if (newSession != null) {
-				launcher.getAccounts().update(newSession.toSavedSession());
-				setResult(newSession);
-			}
-		});
+        hookActions();
 
-		addMicrosoftButton.addActionListener(ev -> attemptMicrosoftLogin());
+        return new Scene(root, 420, 260);
+    }
 
-		offlineButton.addActionListener(ev ->
-				setResult(new OfflineSession(launcher.getProperties().getProperty("offlinePlayerName"))));
+    private void hookActions() {
+        loginButton.setOnAction(e -> attemptExistingLogin(accountList.getSelectionModel().getSelectedItem()));
+        cancelButton.setOnAction(e -> {
+            selected = null;
+            stage.close();
+        });
 
-		removeSelected.addActionListener(ev -> {
-			if (accountList.getSelectedValue() != null) {
-				boolean confirmed = SwingHelper.confirmDialog(this, SharedLocale.tr("accounts.confirmForget"),
-						SharedLocale.tr("accounts.confirmForgetTitle"));
+        addMojangButton.setOnAction(e -> {
+            Session newSession = LoginDialog.showLoginRequest(stage, launcher);
+            if (newSession != null) {
+                launcher.getAccounts().update(newSession.toSavedSession());
+                setResult(newSession);
+            }
+        });
 
-				if (confirmed) {
-					launcher.getAccounts().remove(accountList.getSelectedValue());
-				}
-			}
-		});
+        addMicrosoftButton.setOnAction(e -> attemptMicrosoftLogin());
 
-		accountList.setSelectedIndex(0);
-	}
+        offlineButton.setOnAction(e -> setResult(new OfflineSession(launcher.getProperties().getProperty("offlinePlayerName"))));
 
-	@Override
-	public void dispose() {
-		accountList.setModel(new DefaultListModel<>());
-		super.dispose();
-	}
+        removeSelectedButton.setOnAction(e -> {
+            SavedSession selectedSession = accountList.getSelectionModel().getSelectedItem();
+            if (selectedSession != null && FxDialogs.confirm(stage, SharedLocale.tr("accounts.confirmForget"), SharedLocale.tr("accounts.confirmForgetTitle"))) {
+                launcher.getAccounts().remove(selectedSession);
+            }
+        });
 
-	public static Session showAccountRequest(Window owner, Launcher launcher) {
-		AccountSelectDialog dialog = new AccountSelectDialog(owner, launcher);
-		dialog.setVisible(true);
+        accountList.setOnMouseClicked(event -> {
+            if (event.getClickCount() == 2 && event.isStillSincePress()) {
+                attemptExistingLogin(accountList.getSelectionModel().getSelectedItem());
+            }
+        });
+    }
 
-		if (dialog.selected != null && dialog.selected.isOnline()) {
-			launcher.getAccounts().update(dialog.selected.toSavedSession());
-		}
+    private void registerListeners() {
+        launcher.getAccounts().addListener(accountListener);
+    }
 
-		Persistence.commitAndForget(launcher.getAccounts());
+    private void unregisterListeners() {
+        launcher.getAccounts().removeListener(accountListener);
+    }
 
-		return dialog.selected;
-	}
+    private void refreshAccounts() {
+        List<SavedSession> snapshot = launcher.getAccounts().snapshot();
+        accountList.getItems().setAll(snapshot);
+    }
 
-	private void setResult(Session result) {
-		this.selected = result;
-		dispose();
-	}
+    private void attemptMicrosoftLogin() {
+        String status = SharedLocale.tr("login.microsoft.seeBrowser");
+        SettableProgress progress = new SettableProgress(status, -1);
 
-	private void attemptMicrosoftLogin() {
-		String status = SharedLocale.tr("login.microsoft.seeBrowser");
-		SettableProgress progress = new SettableProgress(status, -1);
+        ListenableFuture<?> future = launcher.getExecutor().submit(() -> {
+            Session newSession = launcher.getMicrosoftLogin().login(() -> progress.set(SharedLocale.tr("login.loggingInStatus"), -1));
+            if (newSession != null) {
+                launcher.getAccounts().update(newSession.toSavedSession());
+                FxExecutor.INSTANCE.execute(() -> setResult(newSession));
+            }
+            return null;
+        });
 
-		ListenableFuture<?> future = launcher.getExecutor().submit(() -> {
-			Session newSession = launcher.getMicrosoftLogin().login(() ->
-					progress.set(SharedLocale.tr("login.loggingInStatus"), -1));
+        ProgressDialog.showProgress(stage, future, progress, SharedLocale.tr("login.loggingInTitle"), status);
+        FxFutures.addErrorDialogCallback(stage, future);
+    }
 
-			if (newSession != null) {
-				launcher.getAccounts().update(newSession.toSavedSession());
-				setResult(newSession);
-			}
+    private void attemptExistingLogin(SavedSession session) {
+        if (session == null) {
+            return;
+        }
 
-			return null;
-		});
+        LoginService service = launcher.getLoginService(session.getType());
+        RestoreSessionCallable callable = new RestoreSessionCallable(service, session);
+        ObservableFuture<Session> future = new ObservableFuture<>(launcher.getExecutor().submit(callable), callable);
 
-		ProgressDialog.showProgress(this, future, progress,
-				SharedLocale.tr("login.loggingInTitle"), status);
-		SwingHelper.addErrorDialogCallback(this, future);
-	}
+        Futures.addCallback(future, new FutureCallback<Session>() {
+            @Override
+            public void onSuccess(Session result) {
+                setResult(result);
+            }
 
-	private void attemptExistingLogin(SavedSession session) {
-		if (session == null) return;
+            @Override
+            public void onFailure(Throwable t) {
+                if (t instanceof AuthenticationException && ((AuthenticationException) t).isInvalidatedSession()) {
+                    LoginDialog.ReloginDetails details = new LoginDialog.ReloginDetails(session.getUsername(), t.getLocalizedMessage());
+                    Session newSession = LoginDialog.showLoginRequest(stage, launcher, details);
+                    if (newSession != null) {
+                        setResult(newSession);
+                    }
+                } else if (t != null) {
+                    FxDialogs.showError(stage, t.getLocalizedMessage(), SharedLocale.tr("errorTitle"), t);
+                }
+            }
+        }, FxExecutor.INSTANCE);
 
-		LoginService loginService = launcher.getLoginService(session.getType());
-		RestoreSessionCallable callable = new RestoreSessionCallable(loginService, session);
+        ProgressDialog.showProgress(stage, future, SharedLocale.tr("login.loggingInTitle"), SharedLocale.tr("login.loggingInStatus"));
+        FxFutures.addErrorDialogCallback(stage, future);
+    }
 
-		ObservableFuture<Session> future = new ObservableFuture<>(launcher.getExecutor().submit(callable), callable);
-		Futures.addCallback(future, new FutureCallback<Session>() {
-			@Override
-			public void onSuccess(Session result) {
-				setResult(result);
-			}
+    private void setResult(Session session) {
+        if (session != null) {
+            selected = session;
+            unregisterListeners();
+            stage.close();
+        }
+    }
 
-			@Override
-			public void onFailure(Throwable t) {
-				if (t instanceof AuthenticationException) {
-					if (((AuthenticationException) t).isInvalidatedSession()) {
-						// Just need to log in again
-						LoginDialog.ReloginDetails details = new LoginDialog.ReloginDetails(session.getUsername(), t.getLocalizedMessage());
-						Session newSession = LoginDialog.showLoginRequest(AccountSelectDialog.this, launcher, details);
+    public static Session showAccountRequest(Window owner, Launcher launcher) {
+        AccountSelectDialog dialog = new AccountSelectDialog(owner, launcher);
+        dialog.stage.showAndWait();
 
-						setResult(newSession);
-					}
-				} else {
-					SwingHelper.showErrorDialog(AccountSelectDialog.this, t.getLocalizedMessage(), SharedLocale.tr("errorTitle"), t);
-				}
-			}
-		}, SwingExecutor.INSTANCE);
+        Session result = dialog.selected;
+        if (result != null && result.isOnline()) {
+            launcher.getAccounts().update(result.toSavedSession());
+        }
 
-		ProgressDialog.showProgress(this, future, SharedLocale.tr("login.loggingInTitle"),
-				SharedLocale.tr("login.loggingInStatus"));
-	}
+        Persistence.commitAndForget(launcher.getAccounts());
+        return result;
+    }
 
-	@RequiredArgsConstructor
-	private static class RestoreSessionCallable implements Callable<Session>, ProgressObservable {
-		private final LoginService service;
-		private final SavedSession session;
+    @RequiredArgsConstructor
+    private static class RestoreSessionCallable implements Callable<Session>, ProgressObservable {
+        private final LoginService service;
+        private final SavedSession session;
 
-		@Override
-		public Session call() throws Exception {
-			return service.restore(session);
-		}
+        @Override
+        public Session call() throws Exception {
+            return service.restore(session);
+        }
 
-		@Override
-		public String getStatus() {
-			return SharedLocale.tr("accounts.refreshingStatus");
-		}
+        @Override
+        public String getStatus() {
+            return SharedLocale.tr("accounts.refreshingStatus");
+        }
 
-		@Override
-		public double getProgress() {
-			return -1;
-		}
-	}
+        @Override
+        public double getProgress() {
+            return -1;
+        }
+    }
 
-	private static class AccountRenderer extends JLabel implements ListCellRenderer<SavedSession> {
-		public AccountRenderer() {
-			setHorizontalAlignment(LEFT);
-		}
+    private static class AccountCell extends ListCell<SavedSession> {
+        private final ImageView avatarView = new ImageView();
 
-		@Override
-		public Component getListCellRendererComponent(JList<? extends SavedSession> list, SavedSession value, int index, boolean isSelected, boolean cellHasFocus) {
-			setText(value.getUsername());
-			if (value.getAvatarImage() != null) {
-				setIcon(new ImageIcon(value.getAvatarImage()));
-			} else {
-				setIcon(SwingHelper.createIcon(Launcher.class, "default_skin.png", 32, 32));
-			}
+        AccountCell() {
+            avatarView.setFitWidth(24);
+            avatarView.setFitHeight(24);
+            avatarView.setPreserveRatio(true);
+            setGraphic(new HBox(10, avatarView, new Label()));
+        }
 
-			if (isSelected) {
-				setOpaque(true);
-				setBackground(list.getSelectionBackground());
-				setForeground(list.getSelectionForeground());
-			} else {
-				setOpaque(false);
-				setForeground(list.getForeground());
-			}
-
-			return this;
-		}
-	}
+        @Override
+        protected void updateItem(SavedSession item, boolean empty) {
+            super.updateItem(item, empty);
+            if (empty || item == null) {
+                setText(null);
+                avatarView.setImage(null);
+            } else {
+                setText(item.getUsername());
+                BufferedImage avatar = item.getAvatarImage();
+                if (avatar != null) {
+                    avatarView.setImage(SwingFXUtils.toFXImage(avatar, null));
+                } else {
+                    avatarView.setImage(null);
+                }
+            }
+        }
+    }
 }

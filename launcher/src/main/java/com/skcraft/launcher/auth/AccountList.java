@@ -3,17 +3,15 @@ package com.skcraft.launcher.auth;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.google.common.collect.Lists;
-import com.skcraft.launcher.dialog.component.ListListenerReducer;
 import com.skcraft.launcher.persistence.Scrambled;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import org.apache.commons.lang.RandomStringUtils;
 
-import javax.swing.*;
-import javax.swing.event.ListDataEvent;
-import javax.swing.event.ListDataListener;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /**
  * Persisted account list
@@ -23,25 +21,20 @@ import java.util.List;
 @Setter
 @ToString
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class AccountList implements ListModel<SavedSession> {
-	private List<SavedSession> accounts = Lists.newArrayList();
-	private String clientId = RandomStringUtils.randomAlphanumeric(24);
+public class AccountList {
+    private List<SavedSession> accounts = Lists.newArrayList();
+    private String clientId = RandomStringUtils.randomAlphanumeric(24);
 
-	@JsonIgnore private final ListListenerReducer listeners = new ListListenerReducer();
+    @JsonIgnore private final transient List<Consumer<AccountList>> listeners = new CopyOnWriteArrayList<>();
 
 	public synchronized void add(SavedSession session) {
 		accounts.add(session);
-
-		int index = accounts.size() - 1;
-		listeners.intervalAdded(new ListDataEvent(this, ListDataEvent.INTERVAL_ADDED, index, index));
+        notifyListeners();
 	}
 
 	public synchronized void remove(SavedSession session) {
-		int index = accounts.indexOf(session);
-
-		if (index > -1) {
-			accounts.remove(index);
-			listeners.intervalRemoved(new ListDataEvent(this, ListDataEvent.INTERVAL_REMOVED, index, index));
+        if (accounts.remove(session)) {
+            notifyListeners();
 		}
 	}
 
@@ -50,29 +43,29 @@ public class AccountList implements ListModel<SavedSession> {
 
 		if (index > -1) {
 			accounts.set(index, newSavedSession);
-			listeners.contentsChanged(new ListDataEvent(this, ListDataEvent.CONTENTS_CHANGED, index, index));
 		} else {
 			this.add(newSavedSession);
+            return;
 		}
+        notifyListeners();
 	}
 
-	@Override
-	public int getSize() {
-		return accounts.size();
+    @JsonIgnore
+    public synchronized List<SavedSession> snapshot() {
+        return Lists.newArrayList(accounts);
 	}
 
-	@Override
-	public SavedSession getElementAt(int index) {
-		return accounts.get(index);
+    public void addListener(Consumer<AccountList> listener) {
+        listeners.add(listener);
 	}
 
-	@Override
-	public void addListDataListener(ListDataListener l) {
-		listeners.addListDataListener(l);
+    public void removeListener(Consumer<AccountList> listener) {
+        listeners.remove(listener);
 	}
 
-	@Override
-	public void removeListDataListener(ListDataListener l) {
-		listeners.removeListDataListener(l);
+    private void notifyListeners() {
+        for (Consumer<AccountList> listener : listeners) {
+            listener.accept(this);
+        }
 	}
 }

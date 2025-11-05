@@ -15,119 +15,139 @@ import com.skcraft.launcher.Launcher;
 import com.skcraft.launcher.auth.AuthenticationException;
 import com.skcraft.launcher.auth.Session;
 import com.skcraft.launcher.auth.YggdrasilLoginService;
+import com.skcraft.launcher.fx.FxDialogs;
+import com.skcraft.launcher.fx.FxFutures;
 import com.skcraft.launcher.persistence.Persistence;
-import com.skcraft.launcher.swing.*;
+import com.skcraft.launcher.util.FxExecutor;
 import com.skcraft.launcher.util.SharedLocale;
-import com.skcraft.launcher.util.SwingExecutor;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.VBox;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
+import javafx.stage.Window;
 import lombok.Data;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 
-/**
- * The login dialog.
- */
-public class LoginDialog extends JDialog {
+public class LoginDialog {
 
     private final Launcher launcher;
-    @Getter private Session session;
+    private final Stage stage;
+    @Getter
+    private Session session;
 
-    private final JLabel message = new JLabel(SharedLocale.tr("login.defaultMessage"));
-    private final JTextField usernameText = new JTextField();
-    private final JPasswordField passwordText = new JPasswordField();
-    private final JButton loginButton = new JButton(SharedLocale.tr("login.login"));
-    private final LinkButton recoverButton = new LinkButton(SharedLocale.tr("login.recoverAccount"));
-    private final JButton cancelButton = new JButton(SharedLocale.tr("button.cancel"));
-    private final FormPanel formPanel = new FormPanel();
-    private final LinedBoxPanel buttonsPanel = new LinedBoxPanel(true);
+    private final Label messageLabel = new Label(SharedLocale.tr("login.defaultMessage"));
+    private final TextField usernameField = new TextField();
+    private final PasswordField passwordField = new PasswordField();
+    private final Button loginButton = new Button(SharedLocale.tr("login.login"));
+    private final Hyperlink recoverLink = new Hyperlink(SharedLocale.tr("login.recoverAccount"));
+    private final Button cancelButton = new Button(SharedLocale.tr("button.cancel"));
 
-    /**
-     * Create a new login dialog.
-     *
-     * @param owner the owner
-     * @param launcher the launcher
-     */
-    public LoginDialog(Window owner, @NonNull Launcher launcher, Optional<ReloginDetails> reloginDetails) {
-        super(owner, ModalityType.DOCUMENT_MODAL);
-
+    private LoginDialog(Window owner, @NonNull Launcher launcher, Optional<ReloginDetails> reloginDetails) {
         this.launcher = launcher;
-
-        setTitle(SharedLocale.tr("login.title"));
-        initComponents();
-        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        setMinimumSize(new Dimension(420, 0));
-        setResizable(false);
-        pack();
-        setLocationRelativeTo(owner);
-
-        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent event) {
-                dispose();
-            }
+        this.stage = new Stage();
+        stage.initModality(owner != null ? Modality.WINDOW_MODAL : Modality.APPLICATION_MODAL);
+        if (owner != null) {
+            stage.initOwner(owner);
+        }
+        stage.setTitle(SharedLocale.tr("login.title"));
+        stage.setResizable(false);
+        stage.setScene(createScene());
+        stage.setOnCloseRequest(event -> {
+            session = null;
         });
 
-        reloginDetails.ifPresent(details -> message.setText(details.message));
+        reloginDetails.ifPresent(details -> {
+            messageLabel.setText(details.message);
+            usernameField.setText(details.username);
+        });
+
+        passwordField.setPromptText(SharedLocale.tr("login.password"));
+        usernameField.setPromptText(SharedLocale.tr("login.idEmail"));
+        stage.sizeToScene();
     }
 
-    @SuppressWarnings("unchecked")
-    private void initComponents() {
-        usernameText.setEditable(true);
+    private Scene createScene() {
+        VBox root = new VBox(16);
+        root.setPadding(new Insets(20, 24, 20, 24));
 
-        loginButton.setFont(loginButton.getFont().deriveFont(Font.BOLD));
+        GridPane form = new GridPane();
+        form.setVgap(12);
+        form.setHgap(12);
 
-        formPanel.addRow(message);
-        formPanel.addRow(new JLabel(SharedLocale.tr("login.idEmail")), usernameText);
-        formPanel.addRow(new JLabel(SharedLocale.tr("login.password")), passwordText);
-        buttonsPanel.setBorder(BorderFactory.createEmptyBorder(26, 13, 13, 13));
+        form.add(messageLabel, 0, 0, 2, 1);
+        form.add(new Label(SharedLocale.tr("login.idEmail")), 0, 1);
+        form.add(usernameField, 1, 1);
+        form.add(new Label(SharedLocale.tr("login.password")), 0, 2);
+        form.add(passwordField, 1, 2);
 
-        buttonsPanel.addElement(recoverButton);
-        buttonsPanel.addGlue();
-        buttonsPanel.addElement(loginButton);
-        buttonsPanel.addElement(cancelButton);
+        GridPane.setHgrow(usernameField, Priority.ALWAYS);
+        GridPane.setHgrow(passwordField, Priority.ALWAYS);
 
-        add(formPanel, BorderLayout.CENTER);
-        add(buttonsPanel, BorderLayout.SOUTH);
+        HBox actions = new HBox(10);
+        actions.setAlignment(Pos.CENTER_RIGHT);
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        actions.getChildren().addAll(recoverLink, spacer, cancelButton, loginButton);
 
-        getRootPane().setDefaultButton(loginButton);
+        loginButton.setDefaultButton(true);
 
-        passwordText.setComponentPopupMenu(TextFieldPopupMenu.INSTANCE);
+        root.getChildren().addAll(form, actions);
 
-        recoverButton.addActionListener(
-                ActionListeners.openURL(recoverButton, launcher.getProperties().getProperty("resetPasswordUrl")));
+        hookActions();
 
-        loginButton.addActionListener(e -> prepareLogin());
-        cancelButton.addActionListener(e -> dispose());
+        return new Scene(root, 420, 200);
     }
 
-    @SuppressWarnings("deprecation")
-    private void prepareLogin() {
-        if (!usernameText.getText().isEmpty()) {
-            String password = passwordText.getText();
-
-            if (password == null || password.isEmpty()) {
-                SwingHelper.showErrorDialog(this, SharedLocale.tr("login.noPasswordError"), SharedLocale.tr("login.noPasswordTitle"));
-            } else {
-                attemptLogin(usernameText.getText(), password);
+    private void hookActions() {
+        recoverLink.setOnAction(e -> launcher.getExecutor().execute(() -> {
+            String url = launcher.getProperties().getProperty("resetPasswordUrl");
+            try {
+                java.awt.Desktop.getDesktop().browse(java.net.URI.create(url));
+            } catch (Exception ex) {
+                FxExecutor.INSTANCE.execute(() -> FxDialogs.showError(stage, SharedLocale.tr("errors.openUrlError", url), SharedLocale.tr("errorTitle"), ex));
             }
-        } else {
-            SwingHelper.showErrorDialog(this, SharedLocale.tr("login.noLoginError"), SharedLocale.tr("login.noLoginTitle"));
+        }));
+
+        loginButton.setOnAction(e -> prepareLogin());
+        cancelButton.setOnAction(e -> {
+            session = null;
+            stage.close();
+        });
+    }
+
+    private void prepareLogin() {
+        String username = usernameField.getText();
+        String password = passwordField.getText();
+
+        if (username == null || username.trim().isEmpty()) {
+            FxDialogs.showError(stage, SharedLocale.tr("login.noLoginError"), SharedLocale.tr("login.noLoginTitle"));
+            return;
         }
+
+        if (password == null || password.isEmpty()) {
+            FxDialogs.showError(stage, SharedLocale.tr("login.noPasswordError"), SharedLocale.tr("login.noPasswordTitle"));
+            return;
+        }
+
+        attemptLogin(username.trim(), password);
     }
 
     private void attemptLogin(String username, String password) {
         LoginCallable callable = new LoginCallable(username, password);
-        ObservableFuture<Session> future = new ObservableFuture<Session>(
-                launcher.getExecutor().submit(callable), callable);
+        ObservableFuture<Session> future = new ObservableFuture<>(launcher.getExecutor().submit(callable), callable);
 
         Futures.addCallback(future, new FutureCallback<Session>() {
             @Override
@@ -138,24 +158,24 @@ public class LoginDialog extends JDialog {
             @Override
             public void onFailure(Throwable t) {
             }
-        }, SwingExecutor.INSTANCE);
+        }, FxExecutor.INSTANCE);
 
-        ProgressDialog.showProgress(this, future, SharedLocale.tr("login.loggingInTitle"), SharedLocale.tr("login.loggingInStatus"));
-        SwingHelper.addErrorDialogCallback(this, future);
+        ProgressDialog.showProgress(stage, future, SharedLocale.tr("login.loggingInTitle"), SharedLocale.tr("login.loggingInStatus"));
+        FxFutures.addErrorDialogCallback(stage, future);
     }
 
     private void setResult(Session session) {
         this.session = session;
-        dispose();
+        stage.close();
     }
 
     public static Session showLoginRequest(Window owner, Launcher launcher) {
         return showLoginRequest(owner, launcher, null);
     }
 
-    public static Session showLoginRequest(Window owner, Launcher launcher, ReloginDetails reloginDetails) {
-        LoginDialog dialog = new LoginDialog(owner, launcher, Optional.ofNullable(reloginDetails));
-        dialog.setVisible(true);
+    public static Session showLoginRequest(Window owner, Launcher launcher, ReloginDetails details) {
+        LoginDialog dialog = new LoginDialog(owner, launcher, Optional.ofNullable(details));
+        dialog.stage.showAndWait();
         return dialog.getSession();
     }
 
@@ -169,16 +189,12 @@ public class LoginDialog extends JDialog {
             YggdrasilLoginService service = launcher.getYggdrasil();
             Session identity = service.login(username, password);
 
-            // The presence of the identity (profile in Mojang terms) corresponds to whether the account
-            // owns the game, so we need to check that
             if (identity != null) {
-                // Set offline enabled flag to true
                 Configuration config = launcher.getConfig();
                 if (!config.isOfflineEnabled()) {
                     config.setOfflineEnabled(true);
                     Persistence.commitAndForget(config);
                 }
-
                 return identity;
             } else {
                 throw new AuthenticationException("Minecraft not owned", SharedLocale.tr("login.minecraftNotOwnedError"));
