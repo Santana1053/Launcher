@@ -70,6 +70,14 @@ public class MessageLog extends VBox {
         });
     }
 
+    public void logHighlighted(String message) {
+        log(message);
+    }
+
+    public void logError(String message) {
+        log(message);
+    }
+
     public PrintWriter getWriter() {
         return new PrintWriter(new java.io.Writer() {
             private final StringBuilder builder = new StringBuilder();

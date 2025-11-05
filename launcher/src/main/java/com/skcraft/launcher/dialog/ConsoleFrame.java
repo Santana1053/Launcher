@@ -1,172 +1,190 @@
-/*
- * SK's Minecraft Launcher
- * Copyright (C) 2010-2014 Albert Pham <http://www.sk89q.com> and contributors
- * Please see LICENSE.txt for license information.
- */
-
 package com.skcraft.launcher.dialog;
 
-import com.skcraft.launcher.Launcher;
-import com.skcraft.launcher.swing.LinedBoxPanel;
-import com.skcraft.launcher.swing.MessageLog;
-import com.skcraft.launcher.swing.SwingHelper;
+import com.skcraft.launcher.util.FxExecutor;
 import com.skcraft.launcher.util.PastebinPoster;
 import com.skcraft.launcher.util.SharedLocale;
+import javafx.geometry.Insets;
+import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
+import javafx.stage.Window;
 import lombok.Getter;
-import lombok.NonNull;
-
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 
 import static com.skcraft.launcher.util.SharedLocale.tr;
 
 /**
- * A frame capable of showing messages.
+ * JavaFX console window.
  */
-public class ConsoleFrame extends JFrame {
+public class ConsoleFrame {
 
     private static ConsoleFrame globalFrame;
 
-    @Getter private final Image trayRunningIcon;
-    @Getter private final Image trayClosedIcon;
+    @Getter
+    private final MessageLogWrapper messageLog;
 
-    @Getter private final MessageLog messageLog;
-    @Getter private LinedBoxPanel buttonsPanel;
+    protected final Stage stage;
 
     private boolean registeredGlobalLog = false;
 
-    /**
-     * Construct the frame.
-     *
-     * @param numLines number of lines to show at a time
-     * @param colorEnabled true to enable a colored console
-     */
     public ConsoleFrame(int numLines, boolean colorEnabled) {
-        this(SharedLocale.tr("console.title"), numLines, colorEnabled);
+        this(SharedLocale.tr("console.title"), numLines, colorEnabled, null);
     }
 
-    /**
-     * Construct the frame.
-     * 
-     * @param title the title of the window
-     * @param numLines number of lines to show at a time
-     * @param colorEnabled true to enable a colored console
-     */
-    public ConsoleFrame(@NonNull String title, int numLines, boolean colorEnabled) {
-        messageLog = new MessageLog(numLines, colorEnabled);
-        trayRunningIcon = SwingHelper.createImage(Launcher.class, "tray_ok.png");
-        trayClosedIcon = SwingHelper.createImage(Launcher.class, "tray_closed.png");
-
-        setTitle(title);
-        setIconImage(trayRunningIcon);
-
-        setSize(new Dimension(650, 400));
-        initComponents();
-
-        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent event) {
-                performClose();
-            }
-        });
+    public ConsoleFrame(String title, int numLines, boolean colorEnabled) {
+        this(title, numLines, colorEnabled, null);
     }
 
-    /**
-     * Add components to the frame.
-     */
-    private void initComponents() {
-        JButton pastebinButton = new JButton(SharedLocale.tr("console.uploadLog"));
-        JButton clearLogButton = new JButton(SharedLocale.tr("console.clearLog"));
-        buttonsPanel = new LinedBoxPanel(true);
+    public ConsoleFrame(String title, int numLines, boolean colorEnabled, Window owner) {
+        this.stage = new Stage();
+        this.messageLog = new MessageLogWrapper(numLines, colorEnabled);
 
-        buttonsPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        buttonsPanel.addElement(pastebinButton);
-        buttonsPanel.addElement(clearLogButton);
-
-        add(buttonsPanel, BorderLayout.NORTH);
-        add(messageLog, BorderLayout.CENTER);
-        clearLogButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                messageLog.clear();
-            }
-        });
-
-        pastebinButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                pastebinLog();
-            }
-        });
-    }
-
-    /**
-     * Register the global logger if it hasn't been registered.
-     */
-    private void registerLoggerHandler() {
-        if (!registeredGlobalLog) {
-            getMessageLog().registerLoggerHandler();
-            registeredGlobalLog = true;
+        if (owner != null) {
+            stage.initOwner(owner);
+            stage.initModality(Modality.WINDOW_MODAL);
         }
+
+        stage.setTitle(title);
+        stage.setScene(createScene());
+        stage.setOnCloseRequest(event -> {
+            event.consume();
+            performClose();
+        });
     }
 
-    /**
-     * Attempt to perform window close.
-     */
+    protected Scene createScene() {
+        BorderPane root = new BorderPane();
+        root.setPadding(new Insets(8));
+
+        HBox top = createTopBar();
+        root.setTop(top);
+
+        root.setCenter(messageLog.getNode());
+        BorderPane.setMargin(messageLog.getNode(), new Insets(8, 0, 0, 0));
+
+        return new Scene(root, 650, 400);
+    }
+
+    protected HBox createTopBar() {
+        Button uploadButton = new Button(SharedLocale.tr("console.uploadLog"));
+        Button clearButton = new Button(SharedLocale.tr("console.clearLog"));
+
+        uploadButton.setOnAction(e -> pastebinLog());
+        clearButton.setOnAction(e -> messageLog.clear());
+
+        return new HBox(8, uploadButton, clearButton);
+    }
+
     protected void performClose() {
         messageLog.detachGlobalHandler();
         messageLog.clear();
         registeredGlobalLog = false;
-        dispose();
+        stage.close();
     }
 
-    /**
-     * Send the contents of the message log to a pastebin.
-     */
+    private void registerLoggerHandler() {
+        if (!registeredGlobalLog) {
+            messageLog.registerLoggerHandler();
+            registeredGlobalLog = true;
+        }
+    }
+
     private void pastebinLog() {
         String text = messageLog.getPastableText();
-        // Not really bytes!
-        messageLog.log(tr("console.pasteUploading", text.length()), messageLog.asHighlighted());
+        messageLog.logHighlighted(tr("console.pasteUploading", text.length()) + "\n");
 
         PastebinPoster.paste(text, new PastebinPoster.PasteCallback() {
             @Override
             public void handleSuccess(String url) {
-                messageLog.log(tr("console.pasteUploaded", url), messageLog.asHighlighted());
-                SwingHelper.openURL(url, messageLog);
+                messageLog.logHighlighted(tr("console.pasteUploaded", url) + "\n");
+                FxExecutor.INSTANCE.execute(() -> {
+                    try {
+                        java.awt.Desktop.getDesktop().browse(java.net.URI.create(url));
+                    } catch (Exception ignored) {
+                    }
+                });
             }
 
             @Override
             public void handleError(String err) {
-                messageLog.log(tr("console.pasteFailed", err), messageLog.asError());
+                messageLog.logError(tr("console.pasteFailed", err) + "\n");
             }
         });
     }
 
+    public void show() {
+        registerLoggerHandler();
+        stage.show();
+        stage.toFront();
+        stage.requestFocus();
+    }
+
+    public void hide() {
+        stage.hide();
+    }
+
     public static void showMessages() {
-        ConsoleFrame frame = globalFrame;
-        if (frame == null) {
-            frame = new ConsoleFrame(10000, false);
-            globalFrame = frame;
-            frame.setTitle(SharedLocale.tr("console.launcherConsoleTitle"));
-            frame.registerLoggerHandler();
-            frame.setVisible(true);
-        } else {
-            frame.setVisible(true);
-            frame.registerLoggerHandler();
-            frame.requestFocus();
-        }
+        FxExecutor.INSTANCE.execute(() -> {
+            if (globalFrame == null) {
+                globalFrame = new ConsoleFrame(10000, false);
+                globalFrame.stage.setTitle(SharedLocale.tr("console.launcherConsoleTitle"));
+            }
+            globalFrame.show();
+        });
     }
 
     public static void hideMessages() {
-        ConsoleFrame frame = globalFrame;
-        if (frame != null) {
-            frame.setVisible(false);
-        }
+        FxExecutor.INSTANCE.execute(() -> {
+            if (globalFrame != null) {
+                globalFrame.hide();
+            }
+        });
     }
 
+    public MessageLogWrapper getMessageLog() {
+        return messageLog;
+    }
+
+    /**
+     * Wrapper around MessageLog to preserve API expectations.
+     */
+    public static class MessageLogWrapper extends com.skcraft.launcher.swing.MessageLog {
+        public MessageLogWrapper(int maxLines, boolean colorEnabled) {
+            super(maxLines, colorEnabled);
+        }
+
+        public javafx.scene.Node getNode() {
+            return super.getNode();
+        }
+
+        public void log(String message, Object ignored) {
+            log(message);
+        }
+
+        public Object asHighlighted() {
+            return new Object();
+        }
+
+        public Object asError() {
+            return new Object();
+        }
+
+        public Object asDebug() {
+            return new Object();
+        }
+
+        @Override
+        public void logHighlighted(String message) {
+            super.logHighlighted(message);
+        }
+
+        @Override
+        public void logError(String message) {
+            super.logError(message);
+        }
+    }
 }
