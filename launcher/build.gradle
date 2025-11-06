@@ -4,20 +4,36 @@ plugins {
     id 'io.freefair.lombok'
 }
 
-mainClassName = "com.skcraft.launcher.Launcher"
+mainClassName = "com.skcraft.launcher.fx.LauncherFxApplication"
+
+def javafxVersion = '21.0.3'
+def os = org.gradle.internal.os.OperatingSystem.current()
+def javafxPlatform = os.isWindows() ? 'win' : (os.isMacOsX() ? 'mac' : 'linux')
 
 dependencies {
-    compile 'javax.xml.bind:jaxb-api:2.2.4'
-    compile 'com.fasterxml.jackson.core:jackson-databind:2.3.0'
-    compile 'commons-lang:commons-lang:2.6'
-    compile 'commons-io:commons-io:1.2'
-    compile 'com.google.guava:guava:15.0'
-    compile 'com.beust:jcommander:1.32'
-    compile 'com.miglayout:miglayout:3.7.4'
-    compile 'com.google.code.findbugs:jsr305:3.0.0'
-    compile 'com.googlecode.plist:dd-plist:1.23'
+    implementation 'javax.xml.bind:jaxb-api:2.2.4'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.3.0'
+    implementation 'commons-lang:commons-lang:2.6'
+    implementation 'commons-io:commons-io:1.2'
+    implementation 'com.google.guava:guava:15.0'
+    implementation 'com.beust:jcommander:1.32'
+    implementation 'com.miglayout:miglayout:3.7.4'
+    implementation 'com.google.code.findbugs:jsr305:3.0.0'
+    implementation 'com.googlecode.plist:dd-plist:1.23'
 
     implementation 'net.java.dev.jna:jna-platform:5.10.0'
+
+    implementation "org.openjfx:javafx-base:${javafxVersion}"
+    implementation "org.openjfx:javafx-controls:${javafxVersion}"
+    implementation "org.openjfx:javafx-graphics:${javafxVersion}"
+    implementation "org.openjfx:javafx-web:${javafxVersion}"
+    implementation "org.openjfx:javafx-swing:${javafxVersion}"
+
+    runtimeOnly "org.openjfx:javafx-base:${javafxVersion}:${javafxPlatform}"
+    runtimeOnly "org.openjfx:javafx-controls:${javafxVersion}:${javafxPlatform}"
+    runtimeOnly "org.openjfx:javafx-graphics:${javafxVersion}:${javafxPlatform}"
+    runtimeOnly "org.openjfx:javafx-web:${javafxVersion}:${javafxPlatform}"
+    runtimeOnly "org.openjfx:javafx-swing:${javafxVersion}:${javafxPlatform}"
 }
 
 processResources {

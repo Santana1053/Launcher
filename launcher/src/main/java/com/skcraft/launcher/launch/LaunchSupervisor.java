@@ -15,17 +15,17 @@ import com.skcraft.launcher.Launcher;
 import com.skcraft.launcher.auth.Session;
 import com.skcraft.launcher.dialog.AccountSelectDialog;
 import com.skcraft.launcher.dialog.ProgressDialog;
+import com.skcraft.launcher.fx.FxDialogs;
+import com.skcraft.launcher.fx.FxFutures;
 import com.skcraft.launcher.launch.LaunchOptions.UpdatePolicy;
 import com.skcraft.launcher.persistence.Persistence;
-import com.skcraft.launcher.swing.SwingHelper;
 import com.skcraft.launcher.update.Updater;
+import com.skcraft.launcher.util.FxExecutor;
 import com.skcraft.launcher.util.SharedLocale;
-import com.skcraft.launcher.util.SwingExecutor;
+import javafx.stage.Window;
 import lombok.extern.java.Log;
 import org.apache.commons.io.FileUtils;
 
-import javax.swing.*;
-import java.awt.*;
 import java.io.File;
 import java.io.IOException;
 import java.util.Date;
@@ -81,20 +81,10 @@ public class LaunchSupervisor {
 
                 // Show progress
                 ProgressDialog.showProgress(window, future, SharedLocale.tr("launcher.updatingTitle"), tr("launcher.updatingStatus", instance.getTitle()));
-                SwingHelper.addErrorDialogCallback(window, future);
+                FxFutures.addErrorDialogCallback(window, future);
 
                 // Update the list of instances after updating
-                future.addListener(new Runnable() {
-                    @Override
-                    public void run() {
-                        SwingUtilities.invokeLater(new Runnable() {
-                            @Override
-                            public void run() {
-                                listener.instancesUpdated();
-                            }
-                        });
-                    }
-                }, SwingExecutor.INSTANCE);
+                future.addListener(() -> FxExecutor.INSTANCE.execute(listener::instancesUpdated), FxExecutor.INSTANCE);
 
                 // On success, launch also
                 Futures.addCallback(future, new FutureCallback<Instance>() {
@@ -106,12 +96,12 @@ public class LaunchSupervisor {
                     @Override
                     public void onFailure(Throwable t) {
                     }
-                }, SwingExecutor.INSTANCE);
+                }, FxExecutor.INSTANCE);
             } else {
                 launch(window, instance, session, listener);
             }
         } catch (ArrayIndexOutOfBoundsException e) {
-            SwingHelper.showErrorDialog(window, SharedLocale.tr("launcher.noInstanceError"), SharedLocale.tr("launcher.noInstanceTitle"));
+            FxDialogs.showError(window, SharedLocale.tr("launcher.noInstanceError"), SharedLocale.tr("launcher.noInstanceTitle"));
         }
     }
 
@@ -131,23 +121,18 @@ public class LaunchSupervisor {
         Futures.addCallback(processFuture, new FutureCallback<Process>() {
             @Override
             public void onSuccess(Process result) {
-                SwingUtilities.invokeLater(new Runnable() {
-                    @Override
-                    public void run() {
-                        listener.gameStarted();
-                    }
-                });
+                FxExecutor.INSTANCE.execute(listener::gameStarted);
             }
 
             @Override
             public void onFailure(Throwable t) {
             }
-        });
+        }, FxExecutor.INSTANCE);
 
         // Watch the created process
         ListenableFuture<?> future = Futures.transform(
                 processFuture, new LaunchProcessHandler(launcher), launcher.getExecutor());
-        SwingHelper.addErrorDialogCallback(null, future);
+        FxFutures.addErrorDialogCallback(window, future);
 
         // Clean up at the very end
         future.addListener(new Runnable() {
@@ -160,12 +145,7 @@ public class LaunchSupervisor {
                     log.log(Level.WARNING, "Failed to clean up " + extractDir.getAbsolutePath(), e);
                 }
 
-                SwingUtilities.invokeLater(new Runnable() {
-                    @Override
-                    public void run() {
-                        listener.gameClosed();
-                    }
-                });
+                FxExecutor.INSTANCE.execute(listener::gameClosed);
             }
         }, sameThreadExecutor());
     }

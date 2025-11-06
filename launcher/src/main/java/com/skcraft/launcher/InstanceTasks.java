@@ -8,12 +8,11 @@ package com.skcraft.launcher;
 
 import com.skcraft.concurrency.ObservableFuture;
 import com.skcraft.launcher.dialog.ProgressDialog;
-import com.skcraft.launcher.swing.SwingHelper;
+import com.skcraft.launcher.fx.FxFutures;
 import com.skcraft.launcher.update.HardResetter;
 import com.skcraft.launcher.update.Remover;
 import com.skcraft.launcher.util.SharedLocale;
-
-import java.awt.*;
+import javafx.stage.Window;
 
 import static com.skcraft.launcher.util.SharedLocale.tr;
 
@@ -32,9 +31,8 @@ public class InstanceTasks {
                 launcher.getExecutor().submit(resetter), resetter);
 
         // Show progress
-        ProgressDialog.showProgress(
-                window, future, SharedLocale.tr("instance.deletingTitle"), tr("instance.deletingStatus", instance.getTitle()));
-        SwingHelper.addErrorDialogCallback(window, future);
+        ProgressDialog.showProgress(window, future, SharedLocale.tr("instance.deletingTitle"), tr("instance.deletingStatus", instance.getTitle()));
+        FxFutures.addErrorDialogCallback(window, future);
 
         return future;
     }
@@ -48,7 +46,7 @@ public class InstanceTasks {
         // Show progress
         ProgressDialog.showProgress(window, future, SharedLocale.tr("instance.resettingTitle"),
                 tr("instance.resettingStatus", instance.getTitle()));
-        SwingHelper.addErrorDialogCallback(window, future);
+        FxFutures.addErrorDialogCallback(window, future);
 
         return future;
     }
@@ -58,7 +56,7 @@ public class InstanceTasks {
         ObservableFuture<InstanceList> future = new ObservableFuture<InstanceList>(launcher.getExecutor().submit(loader), loader);
 
         ProgressDialog.showProgress(window, future, SharedLocale.tr("launcher.checkingTitle"), SharedLocale.tr("launcher.checkingStatus"));
-        SwingHelper.addErrorDialogCallback(window, future);
+        FxFutures.addErrorDialogCallback(window, future);
 
         return future;
     }
